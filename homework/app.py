@@ -1,9 +1,13 @@
-import numpy as np
+# importing dependencies
 
+import datetime as dt
+import numpy as np
+from datetime import date, datetime, timedelta
+import pandas as pd
 import sqlalchemy
 from sqlalchemy.ext.automap import automap_base
 from sqlalchemy.orm import Session
-from sqlalchemy import create_engine, func
+from sqlalchemy import create_engine, func, and_
 
 from flask import Flask, jsonify
 
@@ -12,6 +16,7 @@ from flask import Flask, jsonify
 # Database Setup
 #################################################
 engine = create_engine("sqlite:///hawaii.sqlite")
+session = Session(engine)
 
 # reflect an existing database into a new model
 Base = automap_base()
@@ -32,19 +37,20 @@ app = Flask(__name__)
 # Flask Routes
 #################################################
 
+#display main options for API for route in the main page
 @app.route("/")
 def welcome():
     """List all available api routes."""
     return (
         f"Available Routes:<br/>"
-        f"/api/v1.0/precipitation"
-        f"/api/v1.0/stations"
-        f"/api/v1.0/tobs"
-        f"/api/v1.0/<start>"
-        f"/api/v1.0/<start>/<end>"
+        f"/api/v1.0/precipitation<br/>"
+        f"/api/v1.0/stations<br/>"
+        f"/api/v1.0/tobs<br/>"
+        f"/api/v1.0/start_date_yyyymmdd<br/>"
+        f"/api/v1.0/startdate/enddate_yyyymmdd"
     )
 
-
+#Create route to obtain Precipitation data
 @app.route("/api/v1.0/precipitation")
 def precipitation():
     # Create our session (link) from Python to the DB
@@ -53,86 +59,95 @@ def precipitation():
     """Return a series of precipitations"""
     # Query all passengers
     results_prcp = session.query(Measurement.date, Measurement.prcp).all()
-
     session.close()
 
-    # Create a dictionary from the row data and put into prcp_dict dictionary
-    all_prcp =[]
-    for date, prcp in results_prcp:
-        prcp_dict = {}
-        prcp_dict["date"] = date
-        prcp_dict["precipitation"] = prcp
-        all_prcp.append(passenger_dict)
+    #Create a dictionary with the date as key and prcp as the value
+    precip = {date: prcp for date, prcp in results_prcp}
+    return jsonify(precip)
 
-    return jsonify(all_prcp)
+#Create route to obtain a list of available Stations  
+@app.route("/api/v1.0/stations")
+def stations():
+# Create our session (link) from Python to the DB
+    session = Session(engine)
 
-#@app.route("/api/v1.0/stations")
-#def passengers():
-#    # Create our session (link) from Python to the DB
-#    session = Session(engine)
-#
-#    """Return a list of passenger data including the name, age, and sex of each passenger"""
-#    # Query all passengers
-#    results = session.query(Passenger.name, Passenger.age, Passenger.sex).all()
-#
-#    session.close()
-#
-#    # Create a dictionary from the row data and append to a list of all_passengers
-#    all_passengers = []
-#    for name, age, sex in results:
-#        passenger_dict = {}
-#        passenger_dict["name"] = name
-#        passenger_dict["age"] = age
-#        passenger_dict["sex"] = sex
-#        all_passengers.append(passenger_dict)
+    """Return a series of stations"""
+    # Query all stations
+    results_station = session.query(Station.name, Station.station).all()
+    session.close()
 
-#    return jsonify(all_passengers)
+    # Create a dictionary from the row data and append to a list of all_stations
+    all_stations = []
+    for name_st, code in results_station:
+        station_dict = {}
+        station_dict["station_name"] = name_st
+        station_dict["code"] = code
+        all_stations.append(station_dict)
+    return jsonify(all_stations)
 
+#Create oute to obtain Temperatures (TOBS)
 
-#if __name__ == '__main__':
-#    app.run(debug=True)
-#from flask import Flask, jsonify
+@app.route("/api/v1.0/tobs")
+def tobs():
+# Create our session (link) from Python to the DB
+    session = Session(engine)
+    prev_year = dt.date(2017, 8, 23) - dt.timedelta(days = 365)
 
-#justice_league_members = [
-#    {"superhero": "Aquaman", "real_name": "Arthur Curry"},
-#    {"superhero": "Batman", "real_name": "Bruce Wayne"},
-#    {"superhero": "Cyborg", "real_name": "Victor Stone"},
-#    {"superhero": "Flash", "real_name": "Barry Allen"},
-#    {"superhero": "Green Lantern", "real_name": "Hal Jordan"},
-#    {"superhero": "Superman", "real_name": "Clark Kent/Kal-El"},
-#    {"superhero": "Wonder Woman", "real_name": "Princess Diana"}
-#]
+    """Return a series of stations"""
+    # Query all stations
+    # to get the date a year from the last entry ( = 2016/08/23) and the station with the highest number of readings (USC00519281)
+    # the SQLAlchemy data in the Jupyter Notebook was used
+    tobs = session.query(Measurement.date, Measurement.tobs, Measurement.station).\
+           filter(and_(Measurement.date >= prev_year),\
+                Measurement.station =="USC00519281").all()
+    session.close()
+    
+    # Create a dictionary from the row data and append to a list of all_tobs
+    all_tobs = []
+    for dates_tobs, tobs_tobs, station_tobs in tobs:
+        tobs_dict = {}
+        tobs_dict["dates_tobs"] = dates_tobs
+        tobs_dict["tobs"] = tobs_tobs
+        tobs_dict["station"] = station_tobs
+        all_tobs.append(tobs_dict)
+    return jsonify(all_tobs)
 
-#################################################
-# Flask Setup
-#################################################
-app = Flask(__name__)
+#create route to obtain date, max temp, min temp and average temp if start and end date are supplied
+@app.route("/api/v1.0/<start_date>/<end_date>")
+def calc_temps(start_date, end_date): 
+    session = Session(engine)
+    result_temp = session.query(func.min(Measurement.tobs), func.max(Measurement.tobs), func.avg(Measurement.tobs)).\
+    filter(and_(
+        Measurement.date <= end_date),
+        Measurement.date >= start_date
+        ).all()
+    session.close()
+    temp_list = []
+    for min_temp, max_temp, avg_temp in result_temp:
+         temp_dict ={}
+         temp_dict["min_temp"] = min_temp
+         temp_dict["max_temp"] = max_temp
+         temp_dict["avg_temp"] = avg_temp
+         temp_list.append(temp_dict)  
+    return jsonify(temp_list)
 
-
-#################################################
-# Flask Routes
-#################################################
-
-#@app.route("/api/v1.0/justice-league")
-#def justice_league():
-#    """Return the justice league data as json"""
-#
-#    return jsonify(justice_league_members)
-#
-#
-#@app.route("/")
-#def welcome():
-#    return (
-#        f"Welcome to the Justice League API!<br/>"
-#        f"Available Routes:<br/>"
-#        f"/api/v1.0/justice-league<br/>"
-#        f"/api/v1.0/justice-league/superhero/batman"
-#    )
-
-
-#"""TODO: Handle API route with variable path to allow getting info
-#for a specific character based on their 'superhero' name """
-
+#create route to obtain date, max temp, min temp and average temp if only the start date being supplied
+@app.route("/api/v1.0/<start_date2>")
+def calc_temps2(start_date2): 
+    session = Session(engine)
+    result_temp2 = session.query(func.min(Measurement.tobs),\
+                                func.max(Measurement.tobs),\
+                                func.avg(Measurement.tobs)).\
+    filter(Measurement.date >= start_date2).all()
+    session.close()
+    temp2_list = []
+    for min_temp2, max_temp2, avg_temp2 in result_temp2:
+         temp2_dict ={}
+         temp2_dict["min_temp"] = min_temp2
+         temp2_dict["max_temp"] = max_temp2
+         temp2_dict["avg_temp"] = avg_temp2
+         temp2_list.append(temp2_dict)  
+    return jsonify(temp2_list)
 
 if __name__ == "__main__":
     app.run(debug=True)
